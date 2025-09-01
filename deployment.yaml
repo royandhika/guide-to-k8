@@ -17,3 +17,5 @@ spec:
         image: ghcr.io/royandhika/guide-to-k8:latest
         ports:
         - containerPort: 3000
+      imagePullSecrets:
+      - name: ghcr-secret
