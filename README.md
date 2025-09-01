@@ -126,6 +126,147 @@ Langkah-langkah ini dilakukan di server/VPS Anda.
     ```
     Anda akan melihat node server Anda dengan status `Ready`.
 
-## Langkah Selanjutnya
+## Langkah 5: Menyiapkan VPS Kedua (Node Agent)
 
-Dengan image yang sudah ada di registry dan cluster K3s yang sudah siap, langkah selanjutnya adalah membuat file manifes Kubernetes (misalnya, `deployment.yaml` dan `service.yaml`) untuk mendeploy aplikasi Anda ke dalam cluster.
+Untuk membuat cluster multi-node, kita perlu satu **Node Server** (master, sudah kita siapkan di Langkah 4) dan satu atau lebih **Node Agent** (worker).
+
+1.  **Reset Node Calon Agent**
+    Jika Anda sudah terlanjur menginstal K3s di VPS kedua, hapus instalasi tersebut. Jika VPS masih baru, lewati langkah ini.
+    ```bash
+    # Dijalankan di VPS yang akan menjadi agent
+    /usr/local/bin/k3s-uninstall.sh
+    ```
+
+2.  **Dapatkan Token & IP dari Node Server**
+    Di VPS pertama (server), dapatkan token rahasia untuk bergabung.
+    ```bash
+    # Dijalankan di VPS Server
+    sudo cat /var/lib/rancher/k3s/server/node-token
+    ```
+    Catat juga alamat IP dari VPS server ini.
+
+3.  **Instal K3s sebagai Agent**
+    Di VPS kedua, jalankan skrip instalasi dengan variabel `K3S_URL` dan `K3S_TOKEN`.
+    ```bash
+    # Dijalankan di VPS yang akan menjadi agent
+    curl -sfL https://get.k3s.io | K3S_URL=https://[IP_ADDRESS_VPS_SERVER]:6443 K3S_TOKEN=[TOKEN_DARI_SERVER] sh -
+    ```
+
+4.  **Verifikasi Cluster**
+    Kembali ke VPS Server dan periksa daftar node. Anda sekarang akan melihat dua node.
+    ```bash
+    # Dijalankan di VPS Server
+    kubectl get nodes
+    ```
+
+## Langkah 6: Konfigurasi Firewall
+
+Buka port-port berikut di firewall masing-masing VPS.
+
+#### Di VPS Server (Master):
+*   **Port `6443/tcp`**: Dari IP semua node agent (untuk Kubernetes API).
+*   **Port `8472/udp`**: Dari IP semua node lain di cluster (untuk jaringan Pod).
+*   **Port `10250/tcp`**: Dari IP semua node lain di cluster (untuk Kubelet).
+
+#### Di VPS Agent (Worker):
+*   **Port `8472/udp`**: Dari IP semua node lain di cluster.
+*   **Port `10250/tcp`**: Dari IP semua node lain di cluster.
+
+#### Di SEMUA Node (Server dan Agent):
+*   **Port `30000-32767/tcp`**: Dari mana saja/internet. Ini adalah rentang port untuk `NodePort` yang akan mengekspos aplikasi Anda.
+
+## Langkah 7: Deploy Aplikasi ke Kubernetes
+
+Buat dua file manifes berikut di direktori Anda.
+
+1.  **`deployment.yaml`**
+    ```yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: nodejs-app-deployment
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: nodejs-app
+      template:
+        metadata:
+          labels:
+            app: nodejs-app
+        spec:
+          containers:
+          - name: guide-to-k8-container
+            image: ghcr.io/[nama_user_github]/guide-to-k8:latest # Ganti dengan username Anda
+            ports:
+            - containerPort: 3000
+    ```
+
+2.  **`service.yaml`**
+    ```yaml
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: nodejs-app-service
+    spec:
+      type: NodePort
+      selector:
+        app: nodejs-app
+      ports:
+        - protocol: TCP
+          port: 80
+          targetPort: 3000
+          nodePort: 30100 # Port eksternal yang akan diakses
+    ```
+
+## Langkah 8: Troubleshooting - `ErrImagePull` (Private Registry)
+
+Error ini terjadi karena cluster K3s tidak memiliki izin untuk mengunduh image dari `ghcr.io` yang mewajibkan autentikasi.
+
+1.  **Buat `ImagePullSecret`**
+    Buat sebuah "rahasia" di Kubernetes yang berisi kredensial Anda. **Gunakan Personal Access Token (PAT)**, bukan password GitHub Anda.
+    ```bash
+    kubectl create secret docker-registry ghcr-secret \
+      --docker-server=ghcr.io \
+      --docker-username=[NAMA_USER_GITHUB] \
+      --docker-password=[PERSONAL_ACCESS_TOKEN] \
+      --docker-email=[EMAIL_ANDA]
+    ```
+
+2.  **Perbarui `deployment.yaml`**
+    Edit `deployment.yaml` dan tambahkan `imagePullSecrets`.
+    ```yaml
+    # ... (bagian atas file sama)
+    spec:
+      template:
+        # ... (metadata sama)
+        spec:
+          containers:
+          - name: guide-to-k8-container
+            image: ghcr.io/[nama_user_github]/guide-to-k8:latest
+            ports:
+            - containerPort: 3000
+          imagePullSecrets:      # <--- TAMBAHKAN BAGIAN INI
+          - name: ghcr-secret   # <--- DAN INI
+    ```
+
+3.  **Terapkan Konfigurasi**
+    Jalankan perintah ini dari node server untuk membuat dan memperbarui aplikasi Anda.
+    ```bash
+    kubectl apply -f deployment.yaml -f service.yaml
+    ```
+
+## Langkah 9: Verifikasi Akhir
+
+1.  **Periksa Status Pods**
+    Pastikan semua pods berstatus `Running`. Opsi `-o wide` akan menunjukkan penyebaran pods di kedua node Anda.
+    ```bash
+    kubectl get pods -o wide
+    ```
+
+2.  **Akses Aplikasi Anda**
+    Buka browser dan akses aplikasi melalui **salah satu IP VPS** Anda di port `30100`.
+    *   `http://[IP_VPS_SERVER]:30100`
+    *   atau `http://[IP_VPS_AGENT]:30100`
+
+Keduanya akan menampilkan pesan "Hi There" dari aplikasi Anda.
