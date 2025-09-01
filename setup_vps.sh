@@ -22,12 +22,22 @@ echo "Untuk mengkonfigurasi 'kubectl' bagi pengguna Anda, login sebagai pengguna
 echo ""
 echo "----------------------------------------------------------------"
 echo "mkdir -p ~/.kube"
+mkdir -p ~/.kube
+
 echo "sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config"
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+
 echo "sudo chown $(id -u):$(id -g) ~/.kube/config"
+sudo chown $(id -u):$(id -g) ~/.kube/config
+
 echo ""
 echo "# (Opsional tapi direkomendasikan) Buat alias permanen"
 echo "echo \"alias kubectl='kubectl --kubeconfig ~/.kube/config'\" >> ~/.bashrc"
+echo \"alias kubectl='kubectl --kubeconfig ~/.kube/config'\" >> ~/.bashrc
+
 echo "source ~/.bashrc"
+source ~/.bashrc
+
 echo "----------------------------------------------------------------"
 echo ""
 echo "Setelah itu, verifikasi dengan 'kubectl get nodes'"
